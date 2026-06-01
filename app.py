@@ -985,16 +985,6 @@ def render_about(actual_source: str, data: dict[str, pd.DataFrame]):
         """
     )
 
-    st.markdown("#### Deployment notes")
-    st.code(
-        """Render environment variables:
-DATA_SOURCE=supabase
-SUPABASE_URL=your-project-url
-SUPABASE_ANON_KEY=your-anon-key
-
-Optional:
-APP_PASSWORD=your-dashboard-password"""
-    )
 
 
 # -----------------------------
@@ -1009,7 +999,7 @@ def main():
     )
 
     st.title("FoodForward Mother and Child Programme Dashboard")
-    st.caption("Cleaned and anonymised Project 1 dataset with Supabase support.")
+    st.caption("Developed by Eduvos")
 
     app_password_gate()
 
@@ -1022,21 +1012,6 @@ def main():
 
         excel_path = str(DEFAULT_EXCEL_PATH)
         selected_source = get_data_source_from_env()
-
-        with st.expander("Developer options", expanded=False):
-            st.caption("For Render, set DATA_SOURCE=supabase in the environment variables.")
-            source_label = st.selectbox(
-                "Data source",
-                options=["Supabase", "Excel workbook"],
-                index=0 if selected_source == "supabase" else 1,
-                help="Normal users do not need to change this.",
-                key="source_selector",
-            )
-            selected_source = "supabase" if source_label == "Supabase" else "excel"
-            excel_path = st.text_input("Excel file path", value=excel_path, key="excel_path")
-            if st.button("Clear cached data", use_container_width=True):
-                st.cache_data.clear()
-                st.rerun()
 
         with st.spinner("Loading dashboard data..."):
             data, actual_source = load_dashboard_data(selected_source, excel_path)
@@ -1163,6 +1138,15 @@ def main():
         st.divider()
         st.markdown("**Privacy note**")
         st.write("The dashboard uses anonymised participant IDs. Direct personal identifiers are not displayed.")
+
+        st.divider()
+        with st.expander("Developer options", expanded=False):
+            st.caption("For Render, set DATA_SOURCE=supabase in the environment variables.")
+            st.write(f"Current source: **{actual_source}**")
+            st.write("To change the source, update the DATA_SOURCE environment variable and redeploy the app.")
+            if st.button("Clear cached data", use_container_width=True):
+                st.cache_data.clear()
+                st.rerun()
 
     tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(
         ["Overview", "Food Distribution", "Child Measurements", "Site Profile", "Data Quality", "About"]
