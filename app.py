@@ -1,4 +1,5 @@
 import os
+from datetime import datetime
 from pathlib import Path
 
 import pandas as pd
@@ -62,7 +63,7 @@ def normalise_columns(df: pd.DataFrame) -> pd.DataFrame:
 def safe_sum(df: pd.DataFrame, column: str) -> float:
     if df.empty or column not in df.columns:
         return 0.0
-    return pd.to_numeric(df[column], errors="coerce").fillna(0).sum()
+    return float(pd.to_numeric(df[column], errors="coerce").fillna(0).sum())
 
 
 def safe_mean(df: pd.DataFrame, column: str) -> float | None:
@@ -78,8 +79,8 @@ def safe_nunique(df: pd.DataFrame, column: str) -> int:
     return int(df[column].nunique(dropna=True))
 
 
-def metric_card(label: str, value, help_text: str | None = None):
-    st.metric(label, value if value is not None else "—", help=help_text)
+def metric_card(label: str, value, help_text: str | None = None, delta=None):
+    st.metric(label, value if value is not None else "—", delta=delta, help=help_text)
 
 
 def format_kg(value: float) -> str:
@@ -99,11 +100,51 @@ def dataframe_download_button(df: pd.DataFrame, label: str, file_name: str, key:
 
 
 def missing_excel_message(path: str):
-    st.error(
-        "The Excel data file could not be found. Please check that the data folder was uploaded correctly."
-    )
+    st.error("The Excel data file could not be found. Please check that the data folder was uploaded correctly.")
     st.code(path)
     st.stop()
+
+
+def app_password_gate():
+    """
+    Optional password protection.
+    Set APP_PASSWORD in Render if the dashboard should not be public.
+    If APP_PASSWORD is not set, the app opens normally.
+    """
+    expected_password = os.getenv("APP_PASSWORD")
+    if not expected_password:
+        return
+
+    st.sidebar.warning("This dashboard is password protected.")
+    password = st.sidebar.text_input("Dashboard password", type="password")
+
+    if password != expected_password:
+        st.warning("Please enter the dashboard password to continue.")
+        st.stop()
+
+
+def get_latest_date_text(data: dict[str, pd.DataFrame]) -> str:
+    food = data.get("food_distributed", pd.DataFrame())
+    measurements = data.get("measurements", pd.DataFrame())
+
+    latest_food = None
+    latest_measurement = None
+
+    if not food.empty:
+        date_col = "posting_date" if "posting_date" in food.columns else "posting_month"
+        if date_col in food.columns and not food[date_col].dropna().empty:
+            latest_food = food[date_col].dropna().max()
+
+    if not measurements.empty and "measurement_month" in measurements.columns and not measurements["measurement_month"].dropna().empty:
+        latest_measurement = measurements["measurement_month"].dropna().max()
+
+    parts = []
+    if pd.notna(latest_food):
+        parts.append(f"latest distribution date: {latest_food.strftime('%d %b %Y')}")
+    if pd.notna(latest_measurement):
+        parts.append(f"latest measurement month: {latest_measurement.strftime('%b %Y')}")
+
+    return "; ".join(parts) if parts else "No date fields available"
 
 
 # -----------------------------
@@ -257,7 +298,7 @@ def get_site_options(data: dict[str, pd.DataFrame]) -> list[str]:
 
 def apply_site_filters(data: dict[str, pd.DataFrame], allowed_sites: list[str]) -> dict[str, pd.DataFrame]:
     if not allowed_sites:
-        return {key: df.copy() for key, df in data.items()}
+        return {key: df.iloc[0:0].copy() if not df.empty and "site_id" in df.columns else df.copy() for key, df in data.items()}
 
     allowed = set(allowed_sites)
     out = {}
@@ -273,7 +314,9 @@ def apply_category_filter(data: dict[str, pd.DataFrame], selected_categories: li
     out = {key: df.copy() for key, df in data.items()}
     food = out.get("food_distributed", pd.DataFrame())
     if selected_categories and not food.empty and "category" in food.columns:
-        out["food_distributed"] = food[food["category"].fillna("Unknown").isin(selected_categories)].copy()
+        out["food_distributed"] = food[food["category"].fillna("Unknown").astype(str).isin(selected_categories)].copy()
+    elif not selected_categories and not food.empty and "category" in food.columns:
+        out["food_distributed"] = food.iloc[0:0].copy()
     return out
 
 
@@ -286,11 +329,10 @@ def apply_date_filters(
 
     if food_range is not None:
         food = out.get("food_distributed", pd.DataFrame())
-        if not food.empty and "posting_month" in food.columns:
+        date_col = "posting_date" if "posting_date" in food.columns else "posting_month"
+        if not food.empty and date_col in food.columns:
             start, end = food_range
-            out["food_distributed"] = food[
-                food["posting_month"].between(start, end, inclusive="both")
-            ].copy()
+            out["food_distributed"] = food[food[date_col].between(start, end, inclusive="both")].copy()
 
     if measurement_range is not None:
         start, end = measurement_range
@@ -309,21 +351,109 @@ def apply_date_filters(
 
 def date_range_widget(df: pd.DataFrame, column: str, label: str, key: str):
     if df.empty or column not in df.columns:
+        st.caption(f"{label}: no date field available.")
         return None
+
     valid_dates = df[column].dropna()
     if valid_dates.empty:
+        st.caption(f"{label}: no valid dates available.")
         return None
 
     min_date = valid_dates.min().date()
     max_date = valid_dates.max().date()
-    selected = st.date_input(label, value=(min_date, max_date), min_value=min_date, max_value=max_date, key=key)
+
+    selected = st.date_input(
+        label,
+        value=(min_date, max_date),
+        min_value=min_date,
+        max_value=max_date,
+        key=key,
+    )
 
     if isinstance(selected, tuple) and len(selected) == 2:
         start = pd.to_datetime(selected[0])
-        end = pd.to_datetime(selected[1])
+        end = pd.to_datetime(selected[1]) + pd.Timedelta(days=1) - pd.Timedelta(seconds=1)
         return start, end
 
     return None
+
+
+def selected_count_text(selected: list, total: int) -> str:
+    return f"{len(selected)} of {total} selected"
+
+
+# -----------------------------
+# Insight helpers
+# -----------------------------
+
+def build_executive_summary(data: dict[str, pd.DataFrame]) -> list[str]:
+    sites = data.get("sites", pd.DataFrame())
+    food = data.get("food_distributed", pd.DataFrame())
+    participants = data.get("participants", pd.DataFrame())
+    measurements = data.get("measurements", pd.DataFrame())
+    dq = data.get("data_quality", pd.DataFrame())
+
+    total_weight = safe_sum(food, "line_weight")
+    site_count = safe_nunique(sites, "site_id") or safe_nunique(food, "site_id")
+    participant_count = safe_nunique(participants, "participant_id") or safe_nunique(measurements, "participant_id")
+    measurement_count = len(measurements)
+    issue_count = len(dq)
+
+    summary = [
+        f"FoodForward distributed **{total_weight:,.1f} kg** of food across **{site_count} selected site(s)**.",
+        f"The selected data includes **{participant_count:,} unique child participant(s)** and **{measurement_count:,} measurement record(s)**.",
+    ]
+
+    if not food.empty and {"site_id", "line_weight"}.issubset(food.columns):
+        site_summary = food.groupby("site_id", as_index=False)["line_weight"].sum().sort_values("line_weight", ascending=False)
+        if not site_summary.empty and total_weight > 0:
+            top = site_summary.iloc[0]
+            share = top["line_weight"] / total_weight * 100
+            summary.append(f"The highest distribution site is **{top['site_id']}**, contributing **{share:.1f}%** of selected food weight.")
+
+    if not food.empty and {"category", "line_weight"}.issubset(food.columns):
+        cat_summary = (
+            food.assign(category=food["category"].fillna("Unknown"))
+            .groupby("category", as_index=False)["line_weight"]
+            .sum()
+            .sort_values("line_weight", ascending=False)
+        )
+        if not cat_summary.empty:
+            summary.append(f"The largest food category in the selected data is **{cat_summary.iloc[0]['category']}**.")
+
+    if measurement_count:
+        issue_rate = issue_count / measurement_count * 100
+        summary.append(f"There are **{issue_count:,} logged data-quality issue(s)**, equal to about **{issue_rate:.1f}%** of selected measurement records.")
+
+    return summary
+
+
+def monthly_change_text(food: pd.DataFrame) -> tuple[str | None, str | None]:
+    if food.empty or not {"posting_month", "line_weight"}.issubset(food.columns):
+        return None, None
+
+    monthly = (
+        food.dropna(subset=["posting_month"])
+        .groupby("posting_month", as_index=False)["line_weight"]
+        .sum()
+        .sort_values("posting_month")
+    )
+
+    if len(monthly) < 2:
+        return None, None
+
+    current = monthly.iloc[-1]
+    previous = monthly.iloc[-2]
+    if previous["line_weight"] == 0:
+        return None, None
+
+    change = (current["line_weight"] - previous["line_weight"]) / previous["line_weight"] * 100
+    delta = f"{change:+.1f}% vs previous month"
+    caption = (
+        f"The latest month shown is {current['posting_month'].strftime('%B %Y')} "
+        f"with {current['line_weight']:,.1f} kg, compared with {previous['line_weight']:,.1f} kg in the previous month."
+    )
+    return delta, caption
 
 
 # -----------------------------
@@ -332,26 +462,32 @@ def date_range_widget(df: pd.DataFrame, column: str, label: str, key: str):
 
 def render_overview(data: dict[str, pd.DataFrame]):
     sites = data["sites"]
-    profile = data["bo_profile"]
     food = data["food_distributed"]
     participants = data["participants"]
     measurements = data["measurements"]
     dq = data["data_quality"]
 
-    st.subheader("Programme overview")
+    st.subheader("Executive summary")
+
+    for line in build_executive_summary(data):
+        st.markdown(f"- {line}")
+
+    st.divider()
 
     flagged_measurements = 0
     if not measurements.empty and "data_quality_flag" in measurements.columns:
         flagged_measurements = int(measurements["data_quality_flag"].notna().sum())
     flagged_pct = (flagged_measurements / len(measurements) * 100) if len(measurements) else 0
 
+    month_delta, month_caption = monthly_change_text(food)
+
     c1, c2, c3, c4 = st.columns(4)
     with c1:
-        metric_card("Sites", safe_nunique(sites, "site_id"))
+        metric_card("Sites", safe_nunique(sites, "site_id") or safe_nunique(food, "site_id"))
     with c2:
-        metric_card("Unique child participants", safe_nunique(participants, "participant_id"))
+        metric_card("Unique child participants", safe_nunique(participants, "participant_id") or safe_nunique(measurements, "participant_id"))
     with c3:
-        metric_card("Total food distributed", format_kg(safe_sum(food, "line_weight")))
+        metric_card("Total food distributed", format_kg(safe_sum(food, "line_weight")), delta=month_delta)
     with c4:
         metric_card("Flagged measurement rate", f"{flagged_pct:.1f}%")
 
@@ -361,14 +497,18 @@ def render_overview(data: dict[str, pd.DataFrame]):
     with c6:
         metric_card("Measurement records", f"{len(measurements):,}")
     with c7:
-        per_child = safe_sum(food, "line_weight") / safe_nunique(participants, "participant_id") if safe_nunique(participants, "participant_id") else 0
+        participant_count = safe_nunique(participants, "participant_id") or safe_nunique(measurements, "participant_id")
+        per_child = safe_sum(food, "line_weight") / participant_count if participant_count else 0
         metric_card("Average kg per child", f"{per_child:,.1f} kg")
     with c8:
         metric_card("Logged data-quality issues", f"{len(dq):,}")
 
+    if month_caption:
+        st.caption(month_caption)
+
     st.info(
-        "This overview combines the food distribution, participant, measurement and data-quality sheets. "
-        "Use the filters in the sidebar to narrow the dashboard by site, province, BO size, category and date range."
+        "Use the filters in the sidebar to focus the dashboard by distribution date, measurement month, "
+        "province, site, organisation size and food category."
     )
 
     st.divider()
@@ -385,7 +525,7 @@ def render_overview(data: dict[str, pd.DataFrame]):
                 .sort_values("participants", ascending=False)
             )
             fig = px.bar(chart_df, x="site_id", y="participants", text="participants")
-            fig.update_layout(xaxis_title="Site", yaxis_title="Participants")
+            fig.update_layout(xaxis_title="Distribution site", yaxis_title="Unique participants")
             st.plotly_chart(fig, use_container_width=True, key="overview_participants_by_site")
             if not chart_df.empty:
                 top = chart_df.iloc[0]
@@ -394,22 +534,21 @@ def render_overview(data: dict[str, pd.DataFrame]):
             st.info("Participant/site data is not available.")
 
     with right:
-        st.markdown("#### Data quality issues")
-        if not dq.empty and "issue" in dq.columns:
-            issue_df = (
-                dq["issue"].fillna("Unspecified issue")
-                .value_counts()
-                .head(10)
-                .reset_index()
+        st.markdown("#### Site share of food distributed")
+        if not food.empty and {"site_id", "line_weight"}.issubset(food.columns):
+            site_share = (
+                food.groupby("site_id", as_index=False)["line_weight"]
+                .sum()
+                .sort_values("line_weight", ascending=False)
             )
-            issue_df.columns = ["issue", "count"]
-            fig = px.bar(issue_df, x="count", y="issue", orientation="h", text="count")
-            fig.update_layout(xaxis_title="Count", yaxis_title="Issue")
-            st.plotly_chart(fig, use_container_width=True, key="overview_data_quality_issues")
-            if not issue_df.empty:
-                st.caption(f"The most common logged issue is: {issue_df.iloc[0]['issue']}.")
+            fig = px.pie(site_share, names="site_id", values="line_weight", hole=0.35)
+            st.plotly_chart(fig, use_container_width=True, key="overview_site_share_pie")
+            if not site_share.empty:
+                top = site_share.iloc[0]
+                share = top["line_weight"] / site_share["line_weight"].sum() * 100 if site_share["line_weight"].sum() else 0
+                st.caption(f"{top['site_id']} accounts for {share:.1f}% of the selected distributed weight.")
         else:
-            st.info("No data quality log available.")
+            st.info("Site distribution data is not available.")
 
     st.markdown("#### Quick downloads")
     d1, d2, d3 = st.columns(3)
@@ -430,15 +569,20 @@ def render_distribution(data: dict[str, pd.DataFrame]):
         st.info("No food distribution records are available for the selected filters.")
         return
 
+    month_delta, month_caption = monthly_change_text(food)
+
     c1, c2, c3, c4 = st.columns(4)
     with c1:
         metric_card("Total quantity", f"{safe_sum(food, 'quantity'):,.0f}")
     with c2:
-        metric_card("Total weight", format_kg(safe_sum(food, "line_weight")))
+        metric_card("Total weight", format_kg(safe_sum(food, "line_weight")), delta=month_delta)
     with c3:
         metric_card("Unique items", safe_nunique(food, "item_code"))
     with c4:
         metric_card("Categories", safe_nunique(food, "category"))
+
+    if month_caption:
+        st.caption(month_caption)
 
     st.divider()
 
@@ -454,7 +598,7 @@ def render_distribution(data: dict[str, pd.DataFrame]):
                 .sort_values("posting_month")
             )
             fig = px.line(monthly, x="posting_month", y="line_weight", markers=True)
-            fig.update_layout(xaxis_title="Month", yaxis_title="Line weight (kg)")
+            fig.update_layout(xaxis_title="Distribution month", yaxis_title="Line weight (kg)")
             st.plotly_chart(fig, use_container_width=True, key="distribution_monthly_weight")
             if not monthly.empty:
                 top_month = monthly.loc[monthly["line_weight"].idxmax()]
@@ -466,7 +610,7 @@ def render_distribution(data: dict[str, pd.DataFrame]):
             st.info("Monthly distribution fields are not available.")
 
     with right:
-        st.markdown("#### Distribution by category")
+        st.markdown("#### Distribution by food category")
         if {"category", "line_weight"}.issubset(food.columns):
             cat = (
                 food.assign(category=food["category"].fillna("Unknown"))
@@ -476,12 +620,42 @@ def render_distribution(data: dict[str, pd.DataFrame]):
                 .head(12)
             )
             fig = px.bar(cat, x="category", y="line_weight", text_auto=".1f")
-            fig.update_layout(xaxis_title="Category", yaxis_title="Line weight (kg)")
+            fig.update_layout(xaxis_title="Food category", yaxis_title="Line weight (kg)")
             st.plotly_chart(fig, use_container_width=True, key="distribution_by_category")
             if not cat.empty:
-                st.caption(f"The largest category by distributed weight is {cat.iloc[0]['category']}.")
+                share = cat.iloc[0]["line_weight"] / cat["line_weight"].sum() * 100 if cat["line_weight"].sum() else 0
+                st.caption(f"The largest category by distributed weight is {cat.iloc[0]['category']} ({share:.1f}% of the top categories shown).")
         else:
             st.info("Category and line-weight fields are not available.")
+
+    left2, right2 = st.columns(2)
+
+    with left2:
+        st.markdown("#### Distribution by site")
+        if {"site_id", "line_weight"}.issubset(food.columns):
+            site_totals = (
+                food.groupby("site_id", as_index=False)["line_weight"]
+                .sum()
+                .sort_values("line_weight", ascending=False)
+            )
+            fig = px.bar(site_totals, x="site_id", y="line_weight", text_auto=".1f")
+            fig.update_layout(xaxis_title="Distribution site", yaxis_title="Line weight (kg)")
+            st.plotly_chart(fig, use_container_width=True, key="distribution_by_site")
+            if not site_totals.empty:
+                st.caption(f"{site_totals.iloc[0]['site_id']} has the highest selected distribution weight.")
+
+    with right2:
+        st.markdown("#### Category share")
+        if {"category", "line_weight"}.issubset(food.columns):
+            cat_share = (
+                food.assign(category=food["category"].fillna("Unknown"))
+                .groupby("category", as_index=False)["line_weight"]
+                .sum()
+                .sort_values("line_weight", ascending=False)
+            )
+            fig = px.pie(cat_share, names="category", values="line_weight", hole=0.35)
+            st.plotly_chart(fig, use_container_width=True, key="distribution_category_share")
+            st.caption("This chart shows each food category as a percentage of the selected distributed weight.")
 
     st.markdown("#### Top distributed items by weight")
     if {"description", "line_weight", "quantity"}.issubset(food.columns):
@@ -543,7 +717,9 @@ def render_measurements(data: dict[str, pd.DataFrame]):
             fig = px.line(weight, x="measurement_month", y="weight_kg", markers=True)
             fig.update_layout(xaxis_title="Measurement month", yaxis_title="Average weight (kg)")
             st.plotly_chart(fig, use_container_width=True, key="measurements_average_weight_over_time")
-            st.caption("This shows the average recorded weight per measurement month for the selected children/sites.")
+            if not weight.empty:
+                latest = weight.iloc[-1]
+                st.caption(f"The latest average weight shown is {latest['weight_kg']:.1f} kg in {latest['measurement_month'].strftime('%B %Y')}.")
 
     with right:
         st.markdown("#### Average height over time")
@@ -558,7 +734,9 @@ def render_measurements(data: dict[str, pd.DataFrame]):
             fig = px.line(height, x="measurement_month", y="height_cm", markers=True)
             fig.update_layout(xaxis_title="Measurement month", yaxis_title="Average height (cm)")
             st.plotly_chart(fig, use_container_width=True, key="measurements_average_height_over_time")
-            st.caption("This shows the average recorded height per measurement month for the selected children/sites.")
+            if not height.empty:
+                latest = height.iloc[-1]
+                st.caption(f"The latest average height shown is {latest['height_cm']:.1f} cm in {latest['measurement_month'].strftime('%B %Y')}.")
 
     left2, right2 = st.columns(2)
 
@@ -581,6 +759,17 @@ def render_measurements(data: dict[str, pd.DataFrame]):
             fig = px.histogram(tmp, x="height_cm", nbins=20)
             fig.update_layout(xaxis_title="Height (cm)", yaxis_title="Number of records")
             st.plotly_chart(fig, use_container_width=True, key="measurements_height_distribution")
+
+    st.markdown("#### Measurement records by site")
+    if {"site_id", "participant_id"}.issubset(measurements.columns):
+        site_measurements = (
+            measurements.groupby("site_id", as_index=False)
+            .agg(measurement_records=("participant_id", "count"), children=("participant_id", "nunique"))
+            .sort_values("measurement_records", ascending=False)
+        )
+        fig = px.bar(site_measurements, x="site_id", y="measurement_records", text="measurement_records")
+        fig.update_layout(xaxis_title="Distribution site", yaxis_title="Measurement records")
+        st.plotly_chart(fig, use_container_width=True, key="measurements_records_by_site")
 
     st.markdown("#### Weight and height relationship")
     if {"weight_kg", "height_cm", "age_months", "site_id"}.issubset(measurements.columns):
@@ -609,7 +798,7 @@ def render_site_profile(data: dict[str, pd.DataFrame]):
     profile = data["bo_profile"]
     sites = data["sites"]
 
-    st.subheader("Site profile")
+    st.subheader("Beneficiary organisation and site profile")
 
     if profile.empty:
         st.info("No site profile data is available for the selected filters.")
@@ -636,16 +825,39 @@ def render_site_profile(data: dict[str, pd.DataFrame]):
             ben["total_beneficiaries"] = pd.to_numeric(ben["total_beneficiaries"], errors="coerce")
             ben = ben.sort_values("total_beneficiaries", ascending=False)
             fig = px.bar(ben, x="site_id", y="total_beneficiaries", text_auto=".0f")
-            fig.update_layout(xaxis_title="Site", yaxis_title="Total beneficiaries")
+            fig.update_layout(xaxis_title="Distribution site", yaxis_title="Total beneficiaries")
             st.plotly_chart(fig, use_container_width=True, key="site_total_beneficiaries_by_site")
+            if not ben.empty:
+                st.caption(f"{ben.iloc[0]['site_id']} has the highest reported number of beneficiaries in the selected profile data.")
 
     with right:
-        st.markdown("#### BO size")
+        st.markdown("#### Organisation size")
         if "bo_size" in profile.columns:
             size_df = profile["bo_size"].fillna("Unknown").value_counts().reset_index()
-            size_df.columns = ["bo_size", "count"]
-            fig = px.pie(size_df, names="bo_size", values="count")
+            size_df.columns = ["organisation_size", "count"]
+            fig = px.pie(size_df, names="organisation_size", values="count", hole=0.35)
             st.plotly_chart(fig, use_container_width=True, key="site_bo_size_pie")
+            st.caption("This shows the share of selected organisations by size.")
+
+    left2, right2 = st.columns(2)
+
+    with left2:
+        st.markdown("#### Organisation category")
+        if "bo_category" in profile.columns:
+            category_df = profile["bo_category"].fillna("Unknown").value_counts().reset_index()
+            category_df.columns = ["organisation_category", "count"]
+            fig = px.bar(category_df, x="organisation_category", y="count", text="count")
+            fig.update_layout(xaxis_title="Organisation category", yaxis_title="Number of organisations")
+            st.plotly_chart(fig, use_container_width=True, key="site_bo_category")
+
+    with right2:
+        st.markdown("#### Province profile")
+        if "province" in profile.columns:
+            province_df = profile["province"].fillna("Unknown").value_counts().reset_index()
+            province_df.columns = ["province", "count"]
+            fig = px.bar(province_df, x="province", y="count", text="count")
+            fig.update_layout(xaxis_title="Province", yaxis_title="Number of organisations")
+            st.plotly_chart(fig, use_container_width=True, key="site_province_profile")
 
     d1, d2 = st.columns(2)
     with d1:
@@ -672,6 +884,8 @@ def render_data_quality(data: dict[str, pd.DataFrame]):
 
     measurement_records = len(measurements)
     logged_issue_rate = len(dq) / measurement_records * 100 if measurement_records else 0
+    flagged_records = measurements["data_quality_flag"].notna().sum() if not measurements.empty and "data_quality_flag" in measurements.columns else 0
+    flagged_rate = flagged_records / measurement_records * 100 if measurement_records else 0
 
     c1, c2, c3, c4 = st.columns(4)
     with c1:
@@ -679,9 +893,9 @@ def render_data_quality(data: dict[str, pd.DataFrame]):
     with c2:
         metric_card("Participants affected", safe_nunique(dq, "participant_id"))
     with c3:
-        metric_card("Months affected", safe_nunique(dq, "measurement_month"))
+        metric_card("Logged issue rate", f"{logged_issue_rate:.1f}%")
     with c4:
-        metric_card("Issues vs measurements", f"{logged_issue_rate:.1f}%")
+        metric_card("Flagged measurement rate", f"{flagged_rate:.1f}%")
 
     st.info(
         "This section shows records that were flagged during data cleaning. These should be treated as data-quality notes, "
@@ -690,17 +904,97 @@ def render_data_quality(data: dict[str, pd.DataFrame]):
 
     st.divider()
 
-    if "issue" in dq.columns:
-        issue_df = dq["issue"].fillna("Unspecified issue").value_counts().reset_index()
-        issue_df.columns = ["issue", "count"]
-        fig = px.bar(issue_df.head(15), x="count", y="issue", orientation="h", text="count")
-        fig.update_layout(xaxis_title="Count", yaxis_title="Issue")
-        st.plotly_chart(fig, use_container_width=True, key="data_quality_issue_counts")
+    left, right = st.columns(2)
+
+    with left:
+        st.markdown("#### Issue counts")
+        if "issue" in dq.columns:
+            issue_df = dq["issue"].fillna("Unspecified issue").value_counts().reset_index()
+            issue_df.columns = ["issue", "count"]
+            fig = px.bar(issue_df.head(15), x="count", y="issue", orientation="h", text="count")
+            fig.update_layout(xaxis_title="Count", yaxis_title="Issue")
+            st.plotly_chart(fig, use_container_width=True, key="data_quality_issue_counts")
+            if not issue_df.empty:
+                st.caption(f"The most common logged issue is: {issue_df.iloc[0]['issue']}.")
+
+    with right:
+        st.markdown("#### Issues by measurement month")
+        if "measurement_month" in dq.columns:
+            issue_months = (
+                dq.dropna(subset=["measurement_month"])
+                .groupby("measurement_month", as_index=False)
+                .size()
+                .rename(columns={"size": "issues"})
+                .sort_values("measurement_month")
+            )
+            fig = px.line(issue_months, x="measurement_month", y="issues", markers=True)
+            fig.update_layout(xaxis_title="Measurement month", yaxis_title="Logged issues")
+            st.plotly_chart(fig, use_container_width=True, key="data_quality_issues_by_month")
+
+    st.markdown("#### Issues by site")
+    if not measurements.empty and {"participant_id", "site_id"}.issubset(measurements.columns) and "participant_id" in dq.columns:
+        participant_site = measurements[["participant_id", "site_id"]].dropna().drop_duplicates()
+        dq_site = dq.merge(participant_site, on="participant_id", how="left")
+        if "site_id" in dq_site.columns:
+            site_issues = dq_site["site_id"].fillna("Unknown").value_counts().reset_index()
+            site_issues.columns = ["site_id", "issues"]
+            fig = px.bar(site_issues, x="site_id", y="issues", text="issues")
+            fig.update_layout(xaxis_title="Distribution site", yaxis_title="Logged issues")
+            st.plotly_chart(fig, use_container_width=True, key="data_quality_issues_by_site")
 
     dataframe_download_button(dq, "Download filtered data-quality log", "filtered_data_quality_log.csv", "download_dq")
 
     with st.expander("View data-quality records"):
         st.dataframe(dq, use_container_width=True, hide_index=True)
+
+
+def render_about(actual_source: str, data: dict[str, pd.DataFrame]):
+    st.subheader("About this dashboard")
+
+    st.markdown(
+        """
+        This dashboard summarises the cleaned and anonymised FoodForward Mother and Child Programme dataset.
+        It is designed to support practical analysis of food distribution, beneficiary organisation profiles,
+        child measurement records and data-quality issues.
+        """
+    )
+
+    st.markdown("#### Data source")
+    st.write(f"Current data source: **{actual_source}**")
+    st.write(f"Data freshness: **{get_latest_date_text(data)}**")
+    st.write(f"App refreshed: **{datetime.now().strftime('%d %b %Y %H:%M')}**")
+
+    st.markdown("#### What the dashboard measures")
+    st.markdown(
+        """
+        - Food distribution quantities and line weights.
+        - Distribution patterns by month, site and food category.
+        - Child measurement trends such as weight and height over time.
+        - Beneficiary organisation characteristics such as province, organisation size and beneficiary counts.
+        - Logged data-quality issues from the cleaned dataset.
+        """
+    )
+
+    st.markdown("#### Important limitations")
+    st.markdown(
+        """
+        - The dashboard is descriptive; it does not prove causation.
+        - The child measurement charts should not be interpreted as clinical diagnosis.
+        - Missing, inconsistent or unusual values may affect trends.
+        - Data-quality flags should be reviewed before making strong conclusions.
+        """
+    )
+
+    st.markdown("#### Deployment notes")
+    st.code(
+        """Render environment variables:
+DATA_SOURCE=supabase
+SUPABASE_URL=your-project-url
+SUPABASE_ANON_KEY=your-anon-key
+
+Optional:
+APP_PASSWORD=your-dashboard-password"""
+    )
 
 
 # -----------------------------
@@ -715,10 +1009,16 @@ def main():
     )
 
     st.title("FoodForward Mother and Child Programme Dashboard")
-    st.caption("Dashboard built from the cleaned and anonymised Project 1 dataset.")
+    st.caption("Cleaned and anonymised Project 1 dataset with Supabase support.")
+
+    app_password_gate()
 
     with st.sidebar:
         st.header("Dashboard controls")
+
+        if st.button("Reset filters", use_container_width=True):
+            st.session_state.clear()
+            st.rerun()
 
         excel_path = str(DEFAULT_EXCEL_PATH)
         selected_source = get_data_source_from_env()
@@ -729,18 +1029,20 @@ def main():
                 "Data source",
                 options=["Supabase", "Excel workbook"],
                 index=0 if selected_source == "supabase" else 1,
-                help="This is hidden in an expander so normal users do not need to choose a source.",
+                help="Normal users do not need to change this.",
+                key="source_selector",
             )
             selected_source = "supabase" if source_label == "Supabase" else "excel"
-            excel_path = st.text_input("Excel file path", value=excel_path)
-            if st.button("Clear cached data"):
+            excel_path = st.text_input("Excel file path", value=excel_path, key="excel_path")
+            if st.button("Clear cached data", use_container_width=True):
                 st.cache_data.clear()
                 st.rerun()
 
         with st.spinner("Loading dashboard data..."):
             data, actual_source = load_dashboard_data(selected_source, excel_path)
 
-        st.success(f"Data source: {actual_source}")
+        st.success(f"Source: {actual_source}")
+        st.caption(get_latest_date_text(data))
 
         st.divider()
         st.subheader("Filters")
@@ -749,58 +1051,121 @@ def main():
         all_sites = get_site_options(data)
 
         profile_for_filters = data.get("bo_profile", pd.DataFrame())
+        food_for_filters = data.get("food_distributed", pd.DataFrame())
+
         selected_provinces = []
         selected_bo_sizes = []
+        selected_sites = all_sites
         selected_categories = []
 
-        if not profile_for_filters.empty and "province" in profile_for_filters.columns:
-            province_options = sorted(profile_for_filters["province"].dropna().astype(str).unique().tolist())
-            selected_provinces = st.multiselect("Province", province_options, default=province_options)
+        food_date_range = None
+        measurement_date_range = None
 
-        if not profile_for_filters.empty and "bo_size" in profile_for_filters.columns:
-            bo_size_options = sorted(profile_for_filters["bo_size"].fillna("Unknown").astype(str).unique().tolist())
-            selected_bo_sizes = st.multiselect("BO size", bo_size_options, default=bo_size_options)
+        with st.expander("Date filters", expanded=True):
+            date_col = "posting_date" if "posting_date" in food_for_filters.columns else "posting_month"
+            food_date_range = date_range_widget(
+                food_for_filters,
+                date_col,
+                "Distribution date range",
+                "food_date_filter",
+            )
+            measurement_date_range = date_range_widget(
+                data.get("measurements", pd.DataFrame()),
+                "measurement_month",
+                "Measurement month range",
+                "measurement_date_filter",
+            )
 
-        allowed_sites_from_profile = all_sites
-        if not profile_for_filters.empty and "site_id" in profile_for_filters.columns:
+        with st.expander("Location filters", expanded=True):
+            if not profile_for_filters.empty and "province" in profile_for_filters.columns:
+                province_options = sorted(profile_for_filters["province"].dropna().astype(str).unique().tolist())
+                selected_provinces = st.multiselect(
+                    "Province",
+                    province_options,
+                    default=province_options,
+                    key="province_filter",
+                )
+                st.caption(selected_count_text(selected_provinces, len(province_options)))
+            else:
+                st.caption("Province filter is not available.")
+
+            allowed_sites_from_profile = all_sites
             tmp_profile = profile_for_filters.copy()
-            if selected_provinces and "province" in tmp_profile.columns:
+
+            if not tmp_profile.empty and "site_id" in tmp_profile.columns:
+                if selected_provinces and "province" in tmp_profile.columns:
+                    tmp_profile = tmp_profile[tmp_profile["province"].astype(str).isin(selected_provinces)]
+                allowed_sites_from_profile = sorted(tmp_profile["site_id"].dropna().astype(str).unique().tolist())
+
+            site_options = [site for site in all_sites if site in allowed_sites_from_profile]
+            selected_sites = st.multiselect(
+                "Distribution site",
+                site_options,
+                default=site_options,
+                format_func=lambda x: site_label_map.get(str(x), str(x)),
+                key="site_filter",
+            )
+            st.caption(selected_count_text(selected_sites, len(site_options)))
+
+        with st.expander("Organisation filters", expanded=True):
+            tmp_profile = profile_for_filters.copy()
+            if selected_provinces and not tmp_profile.empty and "province" in tmp_profile.columns:
                 tmp_profile = tmp_profile[tmp_profile["province"].astype(str).isin(selected_provinces)]
-            if selected_bo_sizes and "bo_size" in tmp_profile.columns:
+
+            if not tmp_profile.empty and "bo_size" in tmp_profile.columns:
+                bo_size_options = sorted(tmp_profile["bo_size"].fillna("Unknown").astype(str).unique().tolist())
+                selected_bo_sizes = st.multiselect(
+                    "Organisation size",
+                    bo_size_options,
+                    default=bo_size_options,
+                    key="bo_size_filter",
+                )
+                st.caption(selected_count_text(selected_bo_sizes, len(bo_size_options)))
+            else:
+                st.caption("Organisation size filter is not available.")
+
+            if selected_bo_sizes and not tmp_profile.empty and "bo_size" in tmp_profile.columns:
                 tmp_profile = tmp_profile[tmp_profile["bo_size"].fillna("Unknown").astype(str).isin(selected_bo_sizes)]
-            allowed_sites_from_profile = sorted(tmp_profile["site_id"].dropna().astype(str).unique().tolist())
 
-        site_options = [site for site in all_sites if site in allowed_sites_from_profile]
-        selected_sites = st.multiselect(
-            "Site",
-            site_options,
-            default=site_options,
-            format_func=lambda x: site_label_map.get(str(x), str(x)),
-        )
+            # Apply organisation-size filter to the selected sites.
+            if not tmp_profile.empty and "site_id" in tmp_profile.columns:
+                org_allowed_sites = set(tmp_profile["site_id"].dropna().astype(str).unique().tolist())
+                selected_sites = [site for site in selected_sites if site in org_allowed_sites]
 
-        food_for_filters = data.get("food_distributed", pd.DataFrame())
-        if not food_for_filters.empty and "category" in food_for_filters.columns:
-            category_options = sorted(food_for_filters["category"].fillna("Unknown").astype(str).unique().tolist())
-            selected_categories = st.multiselect("Food category", category_options, default=category_options)
+        with st.expander("Food filters", expanded=True):
+            if not food_for_filters.empty and "category" in food_for_filters.columns:
+                category_options = sorted(food_for_filters["category"].fillna("Unknown").astype(str).unique().tolist())
+                selected_categories = st.multiselect(
+                    "Food category",
+                    category_options,
+                    default=category_options,
+                    key="category_filter",
+                )
+                st.caption(selected_count_text(selected_categories, len(category_options)))
+            else:
+                st.caption("Food category filter is not available.")
 
-        food_date_range = date_range_widget(food_for_filters, "posting_month", "Food distribution date range", "food_date_filter")
-        measurement_date_range = date_range_widget(
-            data.get("measurements", pd.DataFrame()),
-            "measurement_month",
-            "Measurement date range",
-            "measurement_date_filter",
-        )
+        with st.expander("Data options", expanded=False):
+            show_record_counts = st.checkbox("Show record counts after filtering", value=True)
+            st.write("Use the download buttons inside each tab to export filtered data.")
 
         filtered_data = apply_site_filters(data, selected_sites)
         filtered_data = apply_category_filter(filtered_data, selected_categories)
         filtered_data = apply_date_filters(filtered_data, food_date_range, measurement_date_range)
 
+        if show_record_counts:
+            st.divider()
+            st.markdown("**Filtered record counts**")
+            st.write(f"Food distribution: {len(filtered_data.get('food_distributed', pd.DataFrame())):,}")
+            st.write(f"Measurements: {len(filtered_data.get('measurements', pd.DataFrame())):,}")
+            st.write(f"Data-quality log: {len(filtered_data.get('data_quality', pd.DataFrame())):,}")
+
         st.divider()
-        st.markdown("**Notes**")
+        st.markdown("**Privacy note**")
         st.write("The dashboard uses anonymised participant IDs. Direct personal identifiers are not displayed.")
 
-    tab1, tab2, tab3, tab4, tab5 = st.tabs(
-        ["Overview", "Distribution", "Measurements", "Site profile", "Data quality"]
+    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(
+        ["Overview", "Food Distribution", "Child Measurements", "Site Profile", "Data Quality", "About"]
     )
 
     with tab1:
@@ -813,6 +1178,8 @@ def main():
         render_site_profile(filtered_data)
     with tab5:
         render_data_quality(filtered_data)
+    with tab6:
+        render_about(actual_source, data)
 
 
 if __name__ == "__main__":
