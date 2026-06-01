@@ -1016,7 +1016,6 @@ def main():
         with st.spinner("Loading dashboard data..."):
             data, actual_source = load_dashboard_data(selected_source, excel_path)
 
-        st.success(f"Source: {actual_source}")
         st.caption(get_latest_date_text(data))
 
         st.divider()
