@@ -205,7 +205,7 @@ def render_overview(data: dict[str, pd.DataFrame]):
             )
             fig = px.bar(chart_df, x="site_id", y="participants", text="participants")
             fig.update_layout(xaxis_title="Site", yaxis_title="Participants")
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, use_container_width=True, key="overview_participants_by_site")
         else:
             st.info("Participant/site data is not available.")
 
@@ -221,7 +221,7 @@ def render_overview(data: dict[str, pd.DataFrame]):
             issue_df.columns = ["issue", "count"]
             fig = px.bar(issue_df, x="count", y="issue", orientation="h", text="count")
             fig.update_layout(xaxis_title="Count", yaxis_title="Issue")
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, use_container_width=True, key="overview_data_quality_issues")
         else:
             st.info("No data quality log available.")
 
@@ -260,7 +260,7 @@ def render_distribution(data: dict[str, pd.DataFrame]):
             )
             fig = px.line(monthly, x="posting_month", y="line_weight", markers=True)
             fig.update_layout(xaxis_title="Month", yaxis_title="Line weight (kg)")
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, use_container_width=True, key="distribution_monthly_weight")
         else:
             st.info("Monthly distribution fields are not available.")
 
@@ -275,7 +275,7 @@ def render_distribution(data: dict[str, pd.DataFrame]):
             )
             fig = px.bar(cat, x="category", y="line_weight", text_auto=".1f")
             fig.update_layout(xaxis_title="Category", yaxis_title="Line weight (kg)")
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, use_container_width=True, key="distribution_by_category")
         else:
             st.info("Category and line-weight fields are not available.")
 
@@ -330,7 +330,7 @@ def render_measurements(data: dict[str, pd.DataFrame]):
             )
             fig = px.line(weight, x="measurement_month", y="weight_kg", markers=True)
             fig.update_layout(xaxis_title="Measurement month", yaxis_title="Average weight (kg)")
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, use_container_width=True, key="measurements_average_weight_over_time")
 
     with right:
         st.markdown("#### Average height over time")
@@ -344,7 +344,7 @@ def render_measurements(data: dict[str, pd.DataFrame]):
             )
             fig = px.line(height, x="measurement_month", y="height_cm", markers=True)
             fig.update_layout(xaxis_title="Measurement month", yaxis_title="Average height (cm)")
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, use_container_width=True, key="measurements_average_height_over_time")
 
     st.markdown("#### Weight and height relationship")
     if {"weight_kg", "height_cm", "age_months", "site_id"}.issubset(measurements.columns):
@@ -360,7 +360,7 @@ def render_measurements(data: dict[str, pd.DataFrame]):
             hover_data=["participant_id", "measurement_month", "age_months"],
         )
         fig.update_layout(xaxis_title="Height (cm)", yaxis_title="Weight (kg)")
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, use_container_width=True, key="measurements_weight_height_relationship")
 
     st.markdown("#### Measurement records")
     st.dataframe(measurements, use_container_width=True, hide_index=True)
@@ -396,7 +396,7 @@ def render_site_profile(data: dict[str, pd.DataFrame]):
             ben = ben.sort_values("total_beneficiaries", ascending=False)
             fig = px.bar(ben, x="site_id", y="total_beneficiaries", text_auto=".0f")
             fig.update_layout(xaxis_title="Site", yaxis_title="Total beneficiaries")
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, use_container_width=True, key="site_total_beneficiaries_by_site")
 
     with right:
         st.markdown("#### BO size")
@@ -404,7 +404,7 @@ def render_site_profile(data: dict[str, pd.DataFrame]):
             size_df = profile["bo_size"].fillna("Unknown").value_counts().reset_index()
             size_df.columns = ["bo_size", "count"]
             fig = px.pie(size_df, names="bo_size", values="count")
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, use_container_width=True, key="site_bo_size_pie")
 
     st.markdown("#### Site lookup")
     st.dataframe(sites, use_container_width=True, hide_index=True)
@@ -437,7 +437,7 @@ def render_data_quality(data: dict[str, pd.DataFrame]):
         issue_df.columns = ["issue", "count"]
         fig = px.bar(issue_df.head(15), x="count", y="issue", orientation="h", text="count")
         fig.update_layout(xaxis_title="Count", yaxis_title="Issue")
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, use_container_width=True, key="data_quality_issue_counts")
 
     st.dataframe(dq, use_container_width=True, hide_index=True)
 
