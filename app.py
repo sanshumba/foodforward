@@ -105,73 +105,6 @@ def missing_excel_message(path: str):
     st.stop()
 
 
-def apply_custom_css():
-    """
-    Makes the Streamlit tab navigation more prominent so users notice it as the main menu.
-    """
-    st.markdown(
-        """
-        <style>
-        div[data-testid="stTabs"] > div[role="tablist"] {
-            background-color: #f3f6f9;
-            padding: 10px 12px;
-            border-radius: 14px;
-            border: 1px solid #d9e2ec;
-            gap: 8px;
-            margin-top: 12px;
-            margin-bottom: 22px;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.05);
-        }
-
-        div[data-testid="stTabs"] button[role="tab"] {
-            background-color: white;
-            border: 1px solid #d9e2ec;
-            border-radius: 999px;
-            padding: 8px 18px;
-            font-weight: 700;
-            color: #1f2937;
-        }
-
-        div[data-testid="stTabs"] button[role="tab"]:hover {
-            background-color: #edf2f7;
-            border-color: #b8c7d9;
-        }
-
-        div[data-testid="stTabs"] button[role="tab"][aria-selected="true"] {
-            background-color: #1f4e79;
-            color: white;
-            border-color: #1f4e79;
-        }
-
-        div[data-testid="stTabs"] button[role="tab"][aria-selected="true"] p {
-            color: white;
-        }
-
-        div[data-testid="stTabs"] button[role="tab"] p {
-            font-size: 0.98rem;
-            font-weight: 700;
-        }
-
-        .menu-hint-box {
-            background: #eef6ff;
-            border: 1px solid #b7d7f2;
-            border-left: 6px solid #1f4e79;
-            border-radius: 12px;
-            padding: 14px 18px;
-            margin: 12px 0 6px 0;
-            color: #1f2937;
-            font-size: 0.98rem;
-        }
-
-        .menu-hint-box strong {
-            color: #1f4e79;
-        }
-        </style>
-        """,
-        unsafe_allow_html=True,
-    )
-
-
 def app_password_gate():
     """
     Optional password protection.
@@ -1065,8 +998,6 @@ def main():
         layout="wide",
     )
 
-    apply_custom_css()
-
     st.title("FoodForward Mother and Child Programme Dashboard")
     st.caption("Developed by Eduvos")
 
@@ -1216,24 +1147,8 @@ def main():
                 st.cache_data.clear()
                 st.rerun()
 
-    st.markdown(
-        """
-        <div class="menu-hint-box">
-            <strong>Dashboard menu:</strong> Use the tabs below to move between the main sections of the dashboard.
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
     tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(
-        [
-            "🏠 Overview",
-            "🍲 Food Distribution",
-            "📏 Child Measurements",
-            "🏢 Site Profile",
-            "✅ Data Quality",
-            "ℹ️ About",
-        ]
+        ["Overview", "Food Distribution", "Child Measurements", "Site Profile", "Data Quality", "About"]
     )
 
     with tab1:
