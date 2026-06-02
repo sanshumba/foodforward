@@ -105,6 +105,58 @@ def missing_excel_message(path: str):
     st.stop()
 
 
+def apply_custom_css():
+    """
+    Makes the dashboard tabs look like prominent menu buttons.
+    """
+    st.markdown(
+        """
+        <style>
+        div[data-testid="stTabs"] > div[role="tablist"] {
+            background-color: #f3f6f9;
+            padding: 10px 12px;
+            border-radius: 14px;
+            border: 1px solid #d9e2ec;
+            gap: 8px;
+            margin-top: 12px;
+            margin-bottom: 22px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+        }
+
+        div[data-testid="stTabs"] button[role="tab"] {
+            background-color: white;
+            border: 1px solid #d9e2ec;
+            border-radius: 999px;
+            padding: 8px 18px;
+            font-weight: 700;
+            color: #1f2937;
+        }
+
+        div[data-testid="stTabs"] button[role="tab"]:hover {
+            background-color: #edf2f7;
+            border-color: #b8c7d9;
+        }
+
+        div[data-testid="stTabs"] button[role="tab"][aria-selected="true"] {
+            background-color: #1f4e79;
+            color: white;
+            border-color: #1f4e79;
+        }
+
+        div[data-testid="stTabs"] button[role="tab"][aria-selected="true"] p {
+            color: white;
+        }
+
+        div[data-testid="stTabs"] button[role="tab"] p {
+            font-size: 0.98rem;
+            font-weight: 700;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
 def app_password_gate():
     """
     Optional password protection.
@@ -997,6 +1049,8 @@ def main():
         page_icon="🍲",
         layout="wide",
     )
+
+    apply_custom_css()
 
     st.title("FoodForward Mother and Child Programme Dashboard")
     st.caption("Developed by Eduvos")
