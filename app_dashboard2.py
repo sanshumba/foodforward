@@ -80,6 +80,46 @@ def format_currency(value) -> str:
     return f"R {float(value):,.2f}"
 
 
+def apply_project2_tab_css() -> None:
+    st.markdown(
+        """
+        <style>
+        div[data-testid="stTabs"] > div[role="tablist"] {
+            background-color: #f3f6f9;
+            padding: 8px 10px;
+            border-radius: 14px;
+            border: 1px solid #d9e2ec;
+            gap: 8px;
+            margin-top: 8px;
+            margin-bottom: 22px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+        }
+
+        div[data-testid="stTabs"] button[role="tab"] {
+            background-color: white;
+            border: 1px solid #d9e2ec;
+            border-radius: 999px;
+            padding: 8px 16px;
+            font-weight: 700;
+            color: #1f2937;
+        }
+
+        div[data-testid="stTabs"] button[role="tab"]:hover {
+            background-color: #edf2f7;
+            border-color: #b8c7d9;
+        }
+
+        div[data-testid="stTabs"] button[role="tab"][aria-selected="true"] {
+            background-color: #1f4e79;
+            color: white;
+            border-color: #1f4e79;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
 def render_page_title(title: str, subtitle: str) -> None:
     st.markdown(f"## {title}")
     st.caption(subtitle)
@@ -380,41 +420,61 @@ def page_cost_scenarios(data: dict) -> None:
 
 def page_methodology(data: dict) -> None:
     render_page_title(
-        "Methodology and Limitations",
-        "The analytical logic behind the basket-quality view and the assumptions behind the interpretation.",
+        "Methodology and Interpretation Notes",
+        "This section explains how the basket-quality view should be understood and what should be considered when interpreting the findings.",
     )
 
-    st.subheader("Basket-quality methodology")
+    st.subheader("How to interpret the basket-quality view")
     st.markdown(
-        "- The analysis uses the Project 2 workbook outputs rather than raw transaction-level exploration."
+        "The basket-quality view provides a relative comparison of food basket composition across sites and months."
     )
     st.markdown(
-        "- Basket quality is interpreted as a relative indicator derived from observed category shares and the proportion of the basket made up of nutrient-sensitive foods."
+        "It considers the balance between key food groups, including staples, fruit and vegetables, protein-rich foods, plant-protein sources and discretionary food items."
     )
     st.markdown(
-        "- Higher scores indicate a basket that appears more balanced in the context of the analytical framework, but do not imply a complete nutrition adequacy assessment."
-    )
-
-    st.subheader("Assumptions and limitations")
-    st.markdown(
-        "- The analysis is based on aggregated basket outputs supplied in the Project 2 workbook and should be treated as an analytical summary rather than a full dietary assessment."
+        "A higher basket-quality score suggests that the recorded basket was more balanced in relation to the categories considered in this analysis. It does not mean that the basket fully meets the nutritional needs of every beneficiary."
     )
     st.markdown(
-        "- Some sites had very low recorded distribution volume, which can make comparisons less stable."
-    )
-    st.markdown(
-        "- The retail benchmark prices are illustrative market context and may differ from actual procurement conditions, supplier contracts, or seasonal price changes."
-    )
-    st.markdown(
-        "- The external product context is provided to support interpretation of the observed gaps, not to define a procurement plan."
+        "A lower score does not necessarily mean that the basket was poor. It may reflect donated-stock availability, seasonal supply, site-specific circumstances, or incomplete distribution records."
     )
 
-    st.subheader("Retail price assumptions")
+    st.subheader("Important interpretation notes")
     st.markdown(
-        "- Retail price values are taken from the workbook’s external product context sheet and should be treated as indicative public-market benchmarks."
+        "The findings should be interpreted as basket-level patterns, not as individual dietary outcomes."
     )
     st.markdown(
-        "- The cost scenarios are illustrative examples only and reflect simplified combinations of products rather than full operational procurement realities."
+        "The data shows what was distributed, not what was consumed by beneficiaries."
+    )
+    st.markdown(
+        "Site comparisons should be read with caution where recorded volumes are very low, as smaller volumes can make percentages less stable."
+    )
+    st.markdown(
+        "The analysis highlights recurring patterns that may be useful for programme reflection, planning discussions and further investigation."
+    )
+
+    st.subheader("External product and price context")
+    st.markdown(
+        "The external product information is included to help place the observed basket gaps in context."
+    )
+    st.markdown(
+        "The listed products are examples of affordable, commonly available foods that relate to the gaps identified in the analysis, particularly plant protein, protein diversity and vegetable diversity."
+    )
+    st.markdown(
+        "These products should not be interpreted as final procurement recommendations."
+    )
+    st.markdown(
+        "Retail prices are included as public market benchmarks. Actual FoodForward SA costs may differ because of supplier agreements, donations, bulk purchasing, regional availability, transport costs and seasonal price changes."
+    )
+
+    st.subheader("Illustrative cost scenarios")
+    st.markdown(
+        "The package scenarios are included to show how different combinations of food items may affect cost and basket composition."
+    )
+    st.markdown(
+        "They are examples for discussion only."
+    )
+    st.markdown(
+        "They should be interpreted as planning illustrations, not proposed procurement packages or final budget recommendations."
     )
 
 
@@ -426,6 +486,7 @@ def main() -> None:
     st.markdown(
         "This view focuses on analytical findings, observed basket patterns, and external market context. It does not repeat the general data-exploration pages from Dashboard 1."
     )
+    apply_project2_tab_css()
 
     pages = {
         "Executive Summary": page_executive_summary,
@@ -438,9 +499,12 @@ def main() -> None:
         "Methodology and Limitations": page_methodology,
     }
 
-    page_name = st.sidebar.radio("Project 2 analysis pages", list(pages.keys()))
     data = load_project2_data()
-    pages[page_name](data)
+    tabs = st.tabs(list(pages.keys()))
+
+    for tab, (page_name, page_func) in zip(tabs, pages.items()):
+        with tab:
+            page_func(data)
 
 
 if __name__ == "__main__":
