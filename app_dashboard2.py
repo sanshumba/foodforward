@@ -1,12 +1,38 @@
+import os
+from pathlib import Path
+
 import pandas as pd
 import plotly.express as px
-import plotly.graph_objects as go
 import streamlit as st
-from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parent
-DATA_PATH = ROOT / "data" / "FoodForward_Project2_Analysis.xlsx"
+
+
+def resolve_workbook_path() -> Path:
+    candidates = []
+
+    env_path = os.getenv("PROJECT2_WORKBOOK_PATH")
+    if env_path:
+        candidates.append(Path(env_path))
+
+    candidates.extend(
+        [
+            ROOT / "data" / "FoodForward_Project2_Analysis.xlsx",
+            Path.cwd() / "data" / "FoodForward_Project2_Analysis.xlsx",
+            Path("/opt/render/project/src/data/FoodForward_Project2_Analysis.xlsx"),
+            Path("/app/data/FoodForward_Project2_Analysis.xlsx"),
+        ]
+    )
+
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+
+    return candidates[0] if candidates else ROOT / "data" / "FoodForward_Project2_Analysis.xlsx"
+
+
+DATA_PATH = resolve_workbook_path()
 
 
 @st.cache_data(show_spinner=False)
