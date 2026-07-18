@@ -1044,12 +1044,6 @@ def render_about(actual_source: str, data: dict[str, pd.DataFrame]):
 # -----------------------------
 
 def dashboard1_page():
-    st.set_page_config(
-        page_title="FoodForward Mother and Child Dashboard",
-        page_icon="🍲",
-        layout="wide",
-    )
-
     apply_custom_css()
 
     st.title("FoodForward Mother and Child Programme Dashboard")
@@ -1226,13 +1220,19 @@ def dashboard2_page():
 
 
 def main():
-    nav = st.navigation(
-        {
-            "Dashboard 1": st.Page(dashboard1_page, title="Dashboard 1", icon="📊"),
-            "Project 2": st.Page(dashboard2_page, title="Project 2", icon="🥦"),
-        }
+    st.set_page_config(
+        page_title="FoodForward Mother and Child Dashboard",
+        page_icon="🍲",
+        layout="wide",
     )
-    nav.run()
+
+    tab1, tab2 = st.tabs(["Dashboard 1", "Project 2"])
+
+    with tab1:
+        dashboard1_page()
+
+    with tab2:
+        dashboard2_page()
 
 
 if __name__ == "__main__":
