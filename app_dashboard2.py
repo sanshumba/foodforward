@@ -1,3 +1,4 @@
+import json
 import os
 from pathlib import Path
 
@@ -9,7 +10,7 @@ import streamlit as st
 ROOT = Path(__file__).resolve().parent
 
 
-def resolve_workbook_path() -> Path:
+def resolve_data_source() -> Path | None:
     candidates = []
 
     env_path = os.getenv("PROJECT2_WORKBOOK_PATH")
@@ -19,9 +20,13 @@ def resolve_workbook_path() -> Path:
     candidates.extend(
         [
             ROOT / "data" / "FoodForward_Project2_Analysis.xlsx",
+            ROOT / "data" / "project2_analysis.json",
             Path.cwd() / "data" / "FoodForward_Project2_Analysis.xlsx",
+            Path.cwd() / "data" / "project2_analysis.json",
             Path("/opt/render/project/src/data/FoodForward_Project2_Analysis.xlsx"),
+            Path("/opt/render/project/src/data/project2_analysis.json"),
             Path("/app/data/FoodForward_Project2_Analysis.xlsx"),
+            Path("/app/data/project2_analysis.json"),
         ]
     )
 
@@ -29,27 +34,35 @@ def resolve_workbook_path() -> Path:
         if candidate.exists():
             return candidate
 
-    return candidates[0] if candidates else ROOT / "data" / "FoodForward_Project2_Analysis.xlsx"
+    return None
 
 
-DATA_PATH = resolve_workbook_path()
+def load_project2_data_from_json(path: Path) -> dict[str, pd.DataFrame]:
+    with path.open("r", encoding="utf-8") as handle:
+        payload = json.load(handle)
+
+    return {name: pd.DataFrame(records) for name, records in payload.items()}
 
 
 @st.cache_data(show_spinner=False)
 def load_project2_data():
-    if not DATA_PATH.exists():
-        st.error("The Project 2 workbook could not be found. Expected path: " + str(DATA_PATH))
+    data_source = resolve_data_source()
+    if data_source is None:
+        st.error("The Project 2 workbook and fallback data file could not be found.")
         st.stop()
 
+    if data_source.suffix.lower() == ".json":
+        return load_project2_data_from_json(data_source)
+
     return {
-        "category_analysis": pd.read_excel(DATA_PATH, sheet_name="Category Analysis", header=2),
-        "monthly_profiles": pd.read_excel(DATA_PATH, sheet_name="Monthly Profiles", header=2),
-        "site_profiles": pd.read_excel(DATA_PATH, sheet_name="Site Profiles", header=2),
-        "basket_quality": pd.read_excel(DATA_PATH, sheet_name="Basket Quality", header=2),
-        "gap_analysis": pd.read_excel(DATA_PATH, sheet_name="Gap Analysis", header=2),
-        "candidate_products": pd.read_excel(DATA_PATH, sheet_name="Candidate Products", header=2),
-        "scenario_testing": pd.read_excel(DATA_PATH, sheet_name="Scenario Testing", header=2),
-        "methodology": pd.read_excel(DATA_PATH, sheet_name="Methodology", header=2),
+        "category_analysis": pd.read_excel(data_source, sheet_name="Category Analysis", header=2),
+        "monthly_profiles": pd.read_excel(data_source, sheet_name="Monthly Profiles", header=2),
+        "site_profiles": pd.read_excel(data_source, sheet_name="Site Profiles", header=2),
+        "basket_quality": pd.read_excel(data_source, sheet_name="Basket Quality", header=2),
+        "gap_analysis": pd.read_excel(data_source, sheet_name="Gap Analysis", header=2),
+        "candidate_products": pd.read_excel(data_source, sheet_name="Candidate Products", header=2),
+        "scenario_testing": pd.read_excel(data_source, sheet_name="Scenario Testing", header=2),
+        "methodology": pd.read_excel(data_source, sheet_name="Methodology", header=2),
     }
 
 
