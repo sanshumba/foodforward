@@ -1043,7 +1043,7 @@ def render_about(actual_source: str, data: dict[str, pd.DataFrame]):
 # Main app
 # -----------------------------
 
-def main():
+def dashboard1_page():
     st.set_page_config(
         page_title="FoodForward Mother and Child Dashboard",
         page_icon="🍲",
@@ -1217,6 +1217,22 @@ def main():
         render_data_quality(filtered_data)
     with tab6:
         render_about(actual_source, data)
+
+
+def dashboard2_page():
+    from app_dashboard2 import main as project2_main
+
+    project2_main()
+
+
+def main():
+    nav = st.navigation(
+        {
+            "Dashboard 1": st.Page(dashboard1_page, title="Dashboard 1", icon="📊"),
+            "Project 2": st.Page(dashboard2_page, title="Project 2", icon="🥦"),
+        }
+    )
+    nav.run()
 
 
 if __name__ == "__main__":
