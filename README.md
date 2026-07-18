@@ -7,6 +7,9 @@ This folder contains a Python dashboard and Supabase upload script for the clean
 - `app.py`  
   Streamlit dashboard for exploring the cleaned anonymised data.
 
+- `app_dashboard2.py`  
+  Separate Project 2 dashboard focused on basket-composition findings, site comparison, gaps, external context, and illustrative cost scenarios.
+
 - `load_to_supabase.py`  
   Python script that uploads the cleaned Excel sheets into Supabase tables.
 
